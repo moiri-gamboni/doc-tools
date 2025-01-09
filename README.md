@@ -80,63 +80,34 @@ gcloud init
 ```
 
 Usage:
-
-1. Create storage buckets:
 ```bash
-gcloud storage buckets create gs://pdf-to-md-input
-gcloud storage buckets create gs://pdf-to-md-output
+# Run with default settings
+./cloud_convert.sh path/to/pdf/directory
+
+# Or customize settings
+./cloud_convert.sh --zone us-central1-a --machine e2-highmem-16 path/to/pdf/directory
 ```
 
-2. Upload PDFs:
-```bash
-gcloud storage cp *.pdf gs://pdf-to-md-input/
-```
+Available options:
+- `-h, --help`: Show help message
+- `-z, --zone ZONE`: GCP zone (default: europe-west3-b)
+- `-m, --machine MACHINE`: Machine type (default: e2-highmem-8)
+- `-i, --instance NAME`: Instance name (default: marker-instance)
+- `--input-bucket NAME`: Input bucket name (default: pdf-to-md-input)
+- `--output-bucket NAME`: Output bucket name (default: pdf-to-md-output)
 
-3. Create Compute Engine instance:
-```bash
-gcloud compute instances create marker-instance \
-    --machine-type=e2-highmem-8 \
-    --image-family=pytorch-latest-cpu \
-    --image-project=deeplearning-platform-release \
-    --boot-disk-size=100GB \
-    --boot-disk-type=pd-balanced \
-    --scopes=storage-full \
-    --zone=europe-west3-b
-```
-
-4. Copy script and run:
-```bash
-# Copy script to instance
-gcloud compute scp convert_pdfs.py marker-instance:~/ --zone=europe-west3-b
-
-# SSH into instance
-gcloud compute ssh marker-instance --zone=europe-west3-b
-
-# On the instance, run with nohup to keep process running if SSH disconnects
-nohup python3 convert_pdfs.py \
-    --input-bucket gs://pdf-to-md-input \
-    --output-bucket gs://pdf-to-md-output \
-    > conversion.log 2>&1 &
-
-# Monitor progress
-tail -f conversion.log
-```
-
-5. After completion, download results and clean up:
-```bash
-# Download results
-gcloud storage cp -r gs://pdf-to-md-output/* ./markdown_output/
-
-# Delete instance to avoid charges
-gcloud compute instances delete marker-instance --zone=europe-west3-b
-
-# Optionally, delete buckets if no longer needed
-gcloud storage rm -r gs://pdf-to-md-input
-gcloud storage rm -r gs://pdf-to-md-output
-```
+The script will:
+1. Create storage buckets
+2. Upload your PDFs
+3. Create and configure a Compute Engine instance
+4. Start the conversion process
+5. Automatically clean up resources when done
+6. Save logs to the output bucket
 
 Notes:
 - The script uses an e2-highmem-8 instance (8 CPUs, 64GB RAM) which can run 8-9 marker workers in parallel
 - Files are processed in batches to avoid memory issues
 - Progress can be monitored through the conversion.log file
 - The instance will continue running (and charging) until explicitly deleted
+- If the script is interrupted, rerunning it will automatically skip already processed files (using marker's --skip_existing flag)
+- The script also uses the -n flag with gcloud storage cp to avoid re-downloading already downloaded PDFs
