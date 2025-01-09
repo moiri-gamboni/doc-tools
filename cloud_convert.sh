@@ -97,25 +97,28 @@ gcloud compute scp convert_pdfs.py $INSTANCE_NAME:~/ --zone=$ZONE
 echo "Setting up cleanup script..."
 gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command="cat > cleanup.sh << 'EOF'
 #!/bin/bash
-# Upload logs
+# First argument is the exit code from the conversion script
+exit_code=\$1
+
+# Always upload logs
 gcloud storage cp conversion.log gs://$OUTPUT_BUCKET/logs/
-# Delete input bucket
-gcloud storage rm -r gs://$INPUT_BUCKET
-# Delete the instance itself
+
+# Only delete input bucket if conversion was successful
+if [ \$exit_code -eq 0 ]; then
+    echo "Conversion successful, cleaning up input bucket..."
+    gcloud storage rm -r gs://$INPUT_BUCKET
+else
+    echo "Conversion failed (exit code \$exit_code), preserving input bucket."
+fi
+
+# Always delete the instance
 gcloud compute instances delete $INSTANCE_NAME --zone=$ZONE --quiet
 EOF
 chmod +x cleanup.sh"
 
 # Start conversion
 echo "Starting PDF conversion..."
-gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command="nohup bash -c '
-python3 convert_pdfs.py \
-    --input-bucket gs://$INPUT_BUCKET \
-    --output-bucket gs://$OUTPUT_BUCKET \
-    > conversion.log 2>&1
-RETVAL=\$?
-./cleanup.sh
-exit \$RETVAL' &"
+gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command="nohup bash -c 'source /opt/conda/etc/profile.d/conda.sh && conda activate base && python3 convert_pdfs.py --input-bucket gs://$INPUT_BUCKET --output-bucket gs://$OUTPUT_BUCKET > conversion.log 2>&1; RETVAL=\$?; ./cleanup.sh \$RETVAL; exit \$RETVAL' &"
 
 echo "Conversion started! You can monitor progress with:"
 echo "gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command='tail -f conversion.log'"
@@ -123,4 +126,3 @@ echo
 echo "When finished, results will be in gs://$OUTPUT_BUCKET/"
 echo "Download them with:"
 echo "gcloud storage cp -r gs://$OUTPUT_BUCKET/* ./markdown_output/"
-``` 
